@@ -1,0 +1,11 @@
+node_modules/
+.env
+.env.local
+/dist
+/frontend/dist
+*.log
+.DS_Store
+.vscode/
+.idea/
+__pycache__/
+.supabase/

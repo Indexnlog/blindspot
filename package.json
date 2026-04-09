@@ -1,0 +1,26 @@
+{
+  "name": "global-lag",
+  "version": "0.1.0",
+  "description": "Scrollytelling visualization of disclosure timing gaps between Korean DART and global corporate registries",
+  "type": "module",
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "preview": "cd frontend && npm run preview",
+    "sync:data": "python scripts/sync_supabase.py",
+    "analyze:timing": "python scripts/timing_analysis.py"
+  },
+  "dependencies": {
+    "scrollama": "^3.2.0",
+    "d3": "^7.8.5",
+    "gsap": "^3.12.2",
+    "topojson-client": "^3.1.0",
+    "@supabase/supabase-js": "^2.38.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  },
+  "keywords": ["scrollytelling", "data-visualization", "d3", "disclosure-gap"],
+  "author": "News Epoch Team",
+  "license": "MIT"
+}
