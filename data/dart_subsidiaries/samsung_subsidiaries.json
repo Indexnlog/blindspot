@@ -1,0 +1,26 @@
+[
+  {
+    "corp_code": "00126380",
+    "corp_name": "삼성전자",
+    "sub_name": "Samsung Electronics America, Inc.",
+    "sub_code": "",
+    "country": "미국",
+    "region": "북미"
+  },
+  {
+    "corp_code": "00126380",
+    "corp_name": "삼성전자",
+    "sub_name": "Samsung Mexicana S.A. de C.V.",
+    "sub_code": "",
+    "country": "멕시코",
+    "region": "북미"
+  },
+  {
+    "corp_code": "00126380",
+    "corp_name": "삼성전자",
+    "sub_name": "Samsung Austin Semiconductor, LLC",
+    "sub_code": "",
+    "country": "미국",
+    "region": "북미"
+  }
+]
