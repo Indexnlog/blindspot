@@ -1,6 +1,6 @@
-# GlobalLag
+# BlindSpot
 
-**공시 시차 시각화 — Disclosure Timing Gap Visualization**
+**한국 기업 해외 사각지대 시각화 — Disclosure Timing Gap Visualization**
 
 한국 기업의 해외 활동이 한국(DART) vs 해외 레지스트리(Companies House, INPI 등)에 얼마나 시차를 두고 공개되는지 시각화하는 Scrollytelling 프로젝트.
 
@@ -22,7 +22,7 @@ npm run dev
 ## 🗂️ Project Structure
 
 ```
-global-lag/
+blindspot/
 ├── frontend/          (Vite + Scrollama + D3)
 ├── scripts/           (Data sync & analysis)
 ├── data/              (Supabase exports)
