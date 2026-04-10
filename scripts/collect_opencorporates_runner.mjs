@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import fs from "node:fs/promises";
+import fs from "node:fs";
+import fsPromises from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +12,28 @@ const API_BASE = "https://api.opencorporates.com/v0.4";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(scriptDir, "..");
+const envPath = path.join(rootDir, ".env");
+
+if (fs.existsSync(envPath)) {
+  const envContents = fs.readFileSync(envPath, "utf8");
+  for (const line of envContents.split(/\r?\n/)) {
+    if (!line || line.trim().startsWith("#")) {
+      continue;
+    }
+
+    const eqIndex = line.indexOf("=");
+    if (eqIndex === -1) {
+      continue;
+    }
+
+    const key = line.slice(0, eqIndex).trim();
+    const value = line.slice(eqIndex + 1).trim();
+    if (key && !(key in process.env)) {
+      process.env[key] = value;
+    }
+  }
+}
+
 const defaultDataDir = path.join(rootDir, "data");
 const dataRoot = process.env.BLINDSPOT_DATA_ROOT || defaultDataDir;
 const dartDataDir =
@@ -91,7 +114,7 @@ function parseArgs(argv) {
 
 async function loadEnvApiKey() {
   const envPath = path.join(rootDir, ".env");
-  const envContents = await fs.readFile(envPath, "utf8");
+  const envContents = await fsPromises.readFile(envPath, "utf8");
   const line = envContents
     .split(/\r?\n/)
     .find((entry) => entry.startsWith("OPENCORPORATES_API_KEY="));
@@ -104,12 +127,12 @@ async function loadEnvApiKey() {
 }
 
 async function ensureOutputDir() {
-  await fs.mkdir(outputDir, { recursive: true });
+  await fsPromises.mkdir(outputDir, { recursive: true });
 }
 
 async function readJson(filePath, fallback) {
   try {
-    const contents = await fs.readFile(filePath, "utf8");
+    const contents = await fsPromises.readFile(filePath, "utf8");
     return JSON.parse(contents);
   } catch {
     return fallback;
@@ -117,7 +140,7 @@ async function readJson(filePath, fallback) {
 }
 
 async function loadDartSubsidiaries() {
-  const entries = await fs.readdir(dartDataDir);
+  const entries = await fsPromises.readdir(dartDataDir);
   const subsidiaries = [];
 
   for (const entry of entries.filter((name) => name.endsWith(".json"))) {
@@ -224,7 +247,7 @@ function applyRegionFilter(subsidiaries, region) {
 }
 
 async function saveJson(filePath, data) {
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2) + "\n", "utf8");
+  await fsPromises.writeFile(filePath, JSON.stringify(data, null, 2) + "\n", "utf8");
 }
 
 async function run() {
