@@ -11,9 +11,14 @@ const API_BASE = "https://api.opencorporates.com/v0.4";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(scriptDir, "..");
-const dataDir = path.join(rootDir, "data");
-const dartDataDir = path.join(dataDir, "dart_subsidiaries");
-const outputDir = path.join(dataDir, "opencorporates");
+const defaultDataDir = path.join(rootDir, "data");
+const dataRoot = process.env.BLINDSPOT_DATA_ROOT || defaultDataDir;
+const dartDataDir =
+  process.env.BLINDSPOT_DART_DATA_DIR ||
+  path.join(dataRoot, "dart_subsidiaries");
+const outputDir =
+  process.env.BLINDSPOT_OPENCORPORATES_DIR ||
+  path.join(dataRoot, "opencorporates");
 const checkpointFile = path.join(outputDir, "checkpoint.json");
 const resultsFile = path.join(outputDir, "matches.json");
 
@@ -240,6 +245,8 @@ async function run() {
 
   console.log(`Loaded ${dartSubsidiaries.length} DART subsidiaries`);
   console.log(`Starting from checkpoint: ${checkpoint.processed}`);
+  console.log(`DART data dir: ${dartDataDir}`);
+  console.log(`Output dir: ${outputDir}`);
   if (options.region) {
     console.log(`Region filter: ${options.region}`);
   }

@@ -57,3 +57,13 @@ npm run collect:opencorporates -- --resume
 ```
 
 On Windows, you can also run `scripts\collect_opencorporates.cmd`.
+
+You can move large input/output data to an external drive by setting:
+
+```bash
+BLINDSPOT_DATA_ROOT=E:/blindspot-data
+```
+
+The collector will then read from `E:/blindspot-data/dart_subsidiaries` and write to
+`E:/blindspot-data/opencorporates`. You can also override them separately with
+`BLINDSPOT_DART_DATA_DIR` and `BLINDSPOT_OPENCORPORATES_DIR`.

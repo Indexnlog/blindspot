@@ -40,9 +40,14 @@ MATCH_THRESHOLD = 2  # minimum word overlap score
 
 # Paths
 SCRIPT_DIR = Path(__file__).parent
-DATA_DIR = SCRIPT_DIR.parent / "data"
-DART_DATA_DIR = DATA_DIR / "dart_subsidiaries"
-OUTPUT_DIR = DATA_DIR / "opencorporates"
+DEFAULT_DATA_DIR = SCRIPT_DIR.parent / "data"
+DATA_ROOT = Path(os.getenv("BLINDSPOT_DATA_ROOT", str(DEFAULT_DATA_DIR))).expanduser()
+DART_DATA_DIR = Path(
+    os.getenv("BLINDSPOT_DART_DATA_DIR", str(DATA_ROOT / "dart_subsidiaries"))
+).expanduser()
+OUTPUT_DIR = Path(
+    os.getenv("BLINDSPOT_OPENCORPORATES_DIR", str(DATA_ROOT / "opencorporates"))
+).expanduser()
 CHECKPOINT_FILE = OUTPUT_DIR / "checkpoint.json"
 RESULTS_FILE = OUTPUT_DIR / "matches.json"
 
@@ -68,6 +73,8 @@ class OpenCorporatesCollector:
         
         print(f"Loaded {len(self.dart_subsidiaries)} DART subsidiaries")
         print(f"Starting from checkpoint: {self.checkpoint['processed']}")
+        print(f"DART data dir: {DART_DATA_DIR}")
+        print(f"Output dir: {OUTPUT_DIR}")
         if self.region_filter:
             print(f"Region filter: {self.region_filter}")
 
