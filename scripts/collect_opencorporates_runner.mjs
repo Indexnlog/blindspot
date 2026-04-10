@@ -142,18 +142,64 @@ async function readJson(filePath, fallback) {
 async function loadDartSubsidiaries() {
   const entries = await fsPromises.readdir(dartDataDir);
   const subsidiaries = [];
+  const seen = new Set();
 
   for (const entry of entries.filter((name) => name.endsWith(".json"))) {
     const fullPath = path.join(dartDataDir, entry);
     const parsed = await readJson(fullPath, []);
-    if (Array.isArray(parsed)) {
-      subsidiaries.push(...parsed);
-    } else if (parsed && typeof parsed === "object") {
-      subsidiaries.push(parsed);
+    for (const item of normalizeSubsidiaryPayload(parsed)) {
+      const dedupeKey = `${String(item.corp_name || "").trim().toLowerCase()}::${String(item.sub_name || "").trim().toLowerCase()}`;
+      if (seen.has(dedupeKey)) {
+        continue;
+      }
+      seen.add(dedupeKey);
+      subsidiaries.push(item);
     }
   }
 
   return subsidiaries;
+}
+
+function normalizeSubsidiaryPayload(data) {
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item && typeof item === "object")
+      .map((item) => ({
+        corp_code: item.corp_code || "",
+        corp_name: item.corp_name || "",
+        sub_name: item.sub_name || item.name || "",
+        sub_code: item.sub_code || "",
+        country: item.country || "",
+        region: item.region || "",
+        source: item.source || "",
+      }));
+  }
+
+  if (data && typeof data === "object") {
+    const normalized = [];
+    for (const [corpName, items] of Object.entries(data)) {
+      if (!Array.isArray(items)) {
+        continue;
+      }
+      for (const item of items) {
+        if (!item || typeof item !== "object") {
+          continue;
+        }
+        normalized.push({
+          corp_code: item.corp_code || "",
+          corp_name: item.corp_name || corpName,
+          sub_name: item.sub_name || item.name || "",
+          sub_code: item.sub_code || "",
+          country: item.country || "",
+          region: item.region || "",
+          source: item.source || "",
+        });
+      }
+    }
+    return normalized;
+  }
+
+  return [];
 }
 
 function normalizeWords(value) {

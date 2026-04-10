@@ -25,6 +25,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 from typing import Dict, List, Optional, Tuple
 
+
+def safe_print(message: str):
+    """Print safely on Windows terminals with limited encodings."""
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        print(message.encode("ascii", errors="replace").decode("ascii"))
+
 # Load environment variables
 load_dotenv()
 API_KEY = os.getenv('OPENCORPORATES_API_KEY')
@@ -71,28 +79,76 @@ class OpenCorporatesCollector:
         # Only reuse saved results when explicitly resuming a previous run.
         self.existing_matches = self.load_existing_matches() if resume else []
         
-        print(f"Loaded {len(self.dart_subsidiaries)} DART subsidiaries")
-        print(f"Starting from checkpoint: {self.checkpoint['processed']}")
-        print(f"DART data dir: {DART_DATA_DIR}")
-        print(f"Output dir: {OUTPUT_DIR}")
+        safe_print(f"Loaded {len(self.dart_subsidiaries)} DART subsidiaries")
+        safe_print(f"Starting from checkpoint: {self.checkpoint['processed']}")
+        safe_print(f"DART data dir: {DART_DATA_DIR}")
+        safe_print(f"Output dir: {OUTPUT_DIR}")
         if self.region_filter:
-            print(f"Region filter: {self.region_filter}")
+            safe_print(f"Region filter: {self.region_filter}")
 
     def load_dart_subsidiaries(self) -> List[Dict]:
         """Load DART subsidiary data"""
         subsidiaries = []
+        seen = set()
         for json_file in DART_DATA_DIR.glob("*.json"):
             try:
                 with open(json_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    if isinstance(data, list):
-                        subsidiaries.extend(data)
-                    else:
-                        subsidiaries.append(data)
+                    normalized = self.normalize_subsidiary_payload(data)
+                    for item in normalized:
+                        dedupe_key = (
+                            item.get("corp_name", "").strip().lower(),
+                            item.get("sub_name", "").strip().lower(),
+                        )
+                        if dedupe_key in seen:
+                            continue
+                        seen.add(dedupe_key)
+                        subsidiaries.append(item)
             except Exception as e:
-                print(f"Error loading {json_file}: {e}")
+                safe_print(f"Error loading {json_file}: {e}")
         
         return subsidiaries
+
+    def normalize_subsidiary_payload(self, data) -> List[Dict]:
+        """Normalize supported DART payloads into BlindSpot subsidiary rows."""
+        if isinstance(data, list):
+            normalized = []
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                sub_name = item.get("sub_name") or item.get("name") or ""
+                normalized.append({
+                    "corp_code": item.get("corp_code", ""),
+                    "corp_name": item.get("corp_name", ""),
+                    "sub_name": sub_name,
+                    "sub_code": item.get("sub_code", ""),
+                    "country": item.get("country", ""),
+                    "region": item.get("region", ""),
+                    "source": item.get("source", ""),
+                })
+            return normalized
+
+        if isinstance(data, dict):
+            normalized = []
+            for corp_name, items in data.items():
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    sub_name = item.get("sub_name") or item.get("name") or ""
+                    normalized.append({
+                        "corp_code": item.get("corp_code", ""),
+                        "corp_name": item.get("corp_name", corp_name),
+                        "sub_name": sub_name,
+                        "sub_code": item.get("sub_code", ""),
+                        "country": item.get("country", ""),
+                        "region": item.get("region", ""),
+                        "source": item.get("source", ""),
+                    })
+            return normalized
+
+        return []
 
     def load_checkpoint(self) -> Dict:
         """Load checkpoint data"""
@@ -101,7 +157,7 @@ class OpenCorporatesCollector:
                 with open(CHECKPOINT_FILE, 'r', encoding='utf-8') as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Error loading checkpoint: {e}")
+                safe_print(f"Error loading checkpoint: {e}")
         return {"processed": 0, "matches": []}
 
     def load_existing_matches(self) -> List[Dict]:
@@ -111,7 +167,7 @@ class OpenCorporatesCollector:
                 with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
                     return json.load(f)
             except Exception as e:
-                print(f"Error loading results: {e}")
+                safe_print(f"Error loading results: {e}")
         return []
 
     def save_checkpoint(self, processed: int, matches: List[Dict]):
@@ -159,11 +215,11 @@ class OpenCorporatesCollector:
                 
         except requests.exceptions.HTTPError as e:
             if response.status_code == 403:
-                print(f"Rate limit exceeded for query: {query}")
+                safe_print(f"Rate limit exceeded for query: {query}")
                 return None
-            print(f"HTTP error for {query}: {e}")
+            safe_print(f"HTTP error for {query}: {e}")
         except Exception as e:
-            print(f"Error searching {query}: {e}")
+            safe_print(f"Error searching {query}: {e}")
             
         return None
 
@@ -245,7 +301,7 @@ class OpenCorporatesCollector:
         if not name:
             return None
             
-        print(f"Searching: {name}")
+        safe_print(f"Searching: {name}")
         
         result = self.search_company(name)
         if not result:
@@ -253,7 +309,7 @@ class OpenCorporatesCollector:
             
         is_match, score = self.is_good_match(name, result)
         if not is_match:
-            print(f"  No good match (score: {score})")
+            safe_print(f"  No good match (score: {score})")
             return None
             
         # Build match record
@@ -268,7 +324,7 @@ class OpenCorporatesCollector:
         # Add jurisdiction info
         match.update(self.get_jurisdiction_info(result))
         
-        print(f"  Match found: {result['company']['name']} (score: {score}, {match['jurisdiction']})")
+        safe_print(f"  Match found: {result['company']['name']} (score: {score}, {match['jurisdiction']})")
         return match
 
     def run(self):
@@ -277,11 +333,11 @@ class OpenCorporatesCollector:
         matches = self.existing_matches.copy()
         processed = self.checkpoint["processed"]
         
-        print(f"Starting collection: {processed + 1}/{total}")
+        safe_print(f"Starting collection: {processed + 1}/{total}")
         
         if self.dry_run:
             estimated_time = (total - processed) * RATE_LIMIT_DELAY
-            print(f"Dry run: Estimated time: {estimated_time:.1f} seconds ({estimated_time/60:.1f} minutes)")
+            safe_print(f"Dry run: Estimated time: {estimated_time:.1f} seconds ({estimated_time/60:.1f} minutes)")
             return
         
         try:
@@ -297,16 +353,17 @@ class OpenCorporatesCollector:
                 # Save checkpoint
                 if processed % CHECKPOINT_INTERVAL == 0:
                     self.save_checkpoint(processed, matches)
-                    print(f"Checkpoint saved: {processed}/{total} processed, {len(matches)} matches")
+                    safe_print(f"Checkpoint saved: {processed}/{total} processed, {len(matches)} matches")
                 
                 sys.stdout.flush()  # Ensure output is visible
                 
         except KeyboardInterrupt:
-            print("\nInterrupted by user")
+            safe_print("\nInterrupted by user")
         finally:
-            # Save final results
+            # Save final checkpoint and results on every exit path.
+            self.save_checkpoint(processed, matches)
             self.save_results(matches)
-            print(f"\nCollection complete: {processed}/{total} processed, {len(matches)} matches saved")
+            safe_print(f"\nCollection complete: {processed}/{total} processed, {len(matches)} matches saved")
 
 def main():
     parser = argparse.ArgumentParser(description="OpenCorporates Collector for BlindSpot")
