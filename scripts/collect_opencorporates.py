@@ -21,6 +21,7 @@ import json
 import time
 import shutil
 import argparse
+import re
 import requests
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,17 @@ def safe_print(message: str):
         print(message)
     except UnicodeEncodeError:
         print(message.encode("ascii", errors="replace").decode("ascii"))
+
+
+def clean_search_name(name: str) -> str:
+    """Strip abbreviations, footnotes, and obvious mojibake noise for retry searches."""
+    cleaned = re.sub(r"\(\*[0-9]+\)", "", name)
+    cleaned = re.sub(r"\(([A-Z0-9\-]{2,10})\)\s*$", "", cleaned)
+    cleaned = re.sub(r'["“”]', "", cleaned)
+    cleaned = re.sub(r"[А-Яа-яЁё]+", " ", cleaned)
+    cleaned = re.sub(r"[^\w\s&.,()'/+-]", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,-")
+    return cleaned
 
 # Load environment variables
 load_dotenv()
@@ -352,7 +364,15 @@ class OpenCorporatesCollector:
             
         self.log(f"Searching: {name}")
         
-        result = self.search_company(name)
+        search_query = name
+        result = self.search_company(search_query)
+        cleaned_query = clean_search_name(name)
+        if (not result or not self.is_good_match(name, result)[0]) and cleaned_query and cleaned_query != name:
+            self.log(f"  Retrying with cleaned query: {cleaned_query}")
+            retry_result = self.search_company(cleaned_query)
+            if retry_result:
+                result = retry_result
+                search_query = cleaned_query
         if not result:
             return None
             
@@ -367,7 +387,8 @@ class OpenCorporatesCollector:
             "opencorporates_result": result,
             "match_score": score,
             "attribution": "OpenCorporates API search",
-            "collected_at": time.time()
+            "collected_at": time.time(),
+            "search_query": search_query,
         }
         
         # Add jurisdiction info

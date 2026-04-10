@@ -244,6 +244,18 @@ function normalizeWords(value) {
   );
 }
 
+function cleanSearchName(name) {
+  return name
+    .replace(/\(\*[0-9]+\)/g, "")
+    .replace(/\(([A-Z0-9-]{2,10})\)\s*$/g, "")
+    .replace(/["“”]/g, "")
+    .replace(/[А-Яа-яЁё]+/g, " ")
+    .replace(/[^\w\s&.,()'/+-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[ .,-]+$/g, "");
+}
+
 function calculateWordOverlap(name1, name2) {
   const words1 = normalizeWords(name1);
   const words2 = normalizeWords(name2);
@@ -382,7 +394,17 @@ async function run() {
     logLine(`Searching: ${name}`);
 
     try {
-      const result = await searchCompany(name, apiKey);
+      let searchQuery = name;
+      let result = await searchCompany(searchQuery, apiKey);
+      const cleanedQuery = cleanSearchName(name);
+      if ((!result || !isGoodMatch(name, result).isMatch) && cleanedQuery && cleanedQuery !== name) {
+        logLine(`  Retrying with cleaned query: ${cleanedQuery}`);
+        const retryResult = await searchCompany(cleanedQuery, apiKey);
+        if (retryResult) {
+          result = retryResult;
+          searchQuery = cleanedQuery;
+        }
+      }
       if (!result) {
         processed = index + 1;
         continue;
@@ -402,6 +424,7 @@ async function run() {
         match_score: score,
         attribution: "OpenCorporates API search",
         collected_at: Math.floor(Date.now() / 1000),
+        search_query: searchQuery,
         ...jurisdictionInfo,
       };
 
