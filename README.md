@@ -48,3 +48,12 @@ Data sources require proper attribution. See [DATA_SOURCES_LICENSE.md](../news-e
 ---
 
 **Related Project**: [news-epoch](https://github.com/Indexnlog/news-epoch)
+
+## OpenCorporates Collector
+
+```bash
+npm run collect:opencorporates -- --dry-run
+npm run collect:opencorporates -- --resume
+```
+
+On Windows, you can also run `scripts\collect_opencorporates.cmd`.

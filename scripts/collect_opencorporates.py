@@ -63,8 +63,8 @@ class OpenCorporatesCollector:
         # Load DART subsidiaries
         self.dart_subsidiaries = self.load_dart_subsidiaries()
         
-        # Load existing results
-        self.existing_matches = self.load_existing_matches()
+        # Only reuse saved results when explicitly resuming a previous run.
+        self.existing_matches = self.load_existing_matches() if resume else []
         
         print(f"Loaded {len(self.dart_subsidiaries)} DART subsidiaries")
         print(f"Starting from checkpoint: {self.checkpoint['processed']}")

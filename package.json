@@ -7,6 +7,7 @@
     "dev": "cd frontend && npm run dev",
     "build": "cd frontend && npm run build",
     "preview": "cd frontend && npm run preview",
+    "collect:opencorporates": "node scripts/collect_opencorporates_runner.mjs",
     "sync:data": "python scripts/sync_supabase.py",
     "analyze:timing": "python scripts/timing_analysis.py"
   },
