@@ -42,8 +42,16 @@ const dartDataDir =
 const outputDir =
   process.env.BLINDSPOT_OPENCORPORATES_DIR ||
   path.join(dataRoot, "opencorporates");
-const checkpointFile = path.join(outputDir, "checkpoint.json");
-const resultsFile = path.join(outputDir, "matches.json");
+const latestDir = path.join(outputDir, "latest");
+const archiveDir = path.join(outputDir, "archive");
+const checkpointFile = path.join(latestDir, "checkpoint.json");
+const resultsFile = path.join(latestDir, "matches.json");
+
+const startedAt = new Date();
+const runDay = startedAt.toISOString().slice(0, 10);
+const runStamp = `${String(startedAt.getHours()).padStart(2, "0")}${String(startedAt.getMinutes()).padStart(2, "0")}${String(startedAt.getSeconds()).padStart(2, "0")}`;
+const archiveDayDir = path.join(archiveDir, runDay);
+const runLogFile = path.join(archiveDayDir, `run_${runStamp}.log`);
 
 const regionMap = {
   us: "North America",
@@ -83,6 +91,11 @@ const regionMap = {
   za: "Africa",
   eg: "Africa",
 };
+
+function logLine(message) {
+  console.log(message);
+  fs.appendFileSync(runLogFile, `${message}\n`, "utf8");
+}
 
 function parseArgs(argv) {
   const options = {
@@ -128,6 +141,25 @@ async function loadEnvApiKey() {
 
 async function ensureOutputDir() {
   await fsPromises.mkdir(outputDir, { recursive: true });
+  await fsPromises.mkdir(latestDir, { recursive: true });
+  await fsPromises.mkdir(archiveDir, { recursive: true });
+  await fsPromises.mkdir(archiveDayDir, { recursive: true });
+
+  const legacyCheckpoint = path.join(outputDir, "checkpoint.json");
+  const legacyMatches = path.join(outputDir, "matches.json");
+  if (fs.existsSync(legacyCheckpoint) && !fs.existsSync(checkpointFile)) {
+    fs.copyFileSync(legacyCheckpoint, checkpointFile);
+  }
+  if (fs.existsSync(legacyMatches) && !fs.existsSync(resultsFile)) {
+    fs.copyFileSync(legacyMatches, resultsFile);
+  }
+
+  if (fs.existsSync(resultsFile)) {
+    fs.copyFileSync(resultsFile, path.join(archiveDayDir, `matches_${runStamp}_pre.json`));
+  }
+  if (fs.existsSync(checkpointFile)) {
+    fs.copyFileSync(checkpointFile, path.join(archiveDayDir, `checkpoint_${runStamp}_pre.json`));
+  }
 }
 
 async function readJson(filePath, fallback) {
@@ -269,7 +301,7 @@ async function searchCompany(query, apiKey) {
   });
 
   if (response.status === 403) {
-    console.log(`Rate limit exceeded for query: ${query}`);
+    logLine(`Rate limit exceeded for query: ${query}`);
     return null;
   }
 
@@ -312,29 +344,32 @@ async function run() {
     options.region,
   );
 
-  console.log(`Loaded ${dartSubsidiaries.length} DART subsidiaries`);
-  console.log(`Starting from checkpoint: ${checkpoint.processed}`);
-  console.log(`DART data dir: ${dartDataDir}`);
-  console.log(`Output dir: ${outputDir}`);
+  logLine(`Loaded ${dartSubsidiaries.length} DART subsidiaries`);
+  logLine(`Starting from checkpoint: ${checkpoint.processed}`);
+  logLine(`DART data dir: ${dartDataDir}`);
+  logLine(`Output dir: ${outputDir}`);
+  logLine(`Latest dir: ${latestDir}`);
+  logLine(`Archive dir: ${archiveDayDir}`);
   if (options.region) {
-    console.log(`Region filter: ${options.region}`);
+    logLine(`Region filter: ${options.region}`);
   }
 
   if (options.dryRun) {
     const remaining = Math.max(dartSubsidiaries.length - checkpoint.processed, 0);
     const estimatedSeconds = (remaining * RATE_LIMIT_DELAY_MS) / 1000;
-    console.log(
+    logLine(
       `Dry run: Estimated time: ${estimatedSeconds.toFixed(1)} seconds (${(
         estimatedSeconds / 60
       ).toFixed(1)} minutes)`,
     );
+    fs.copyFileSync(runLogFile, path.join(latestDir, "run.log"));
     return;
   }
 
   const matches = Array.isArray(existingMatches) ? [...existingMatches] : [];
   let processed = checkpoint.processed ?? 0;
 
-  console.log(`Starting collection: ${processed + 1}/${dartSubsidiaries.length}`);
+  logLine(`Starting collection: ${processed + 1}/${dartSubsidiaries.length}`);
 
   for (let index = processed; index < dartSubsidiaries.length; index += 1) {
     const subsidiary = dartSubsidiaries[index];
@@ -344,7 +379,7 @@ async function run() {
       continue;
     }
 
-    console.log(`Searching: ${name}`);
+    logLine(`Searching: ${name}`);
 
     try {
       const result = await searchCompany(name, apiKey);
@@ -355,7 +390,7 @@ async function run() {
 
       const { isMatch, score } = isGoodMatch(name, result);
       if (!isMatch) {
-        console.log(`  No good match (score: ${score})`);
+        logLine(`  No good match (score: ${score})`);
         processed = index + 1;
         continue;
       }
@@ -371,18 +406,18 @@ async function run() {
       };
 
       matches.push(match);
-      console.log(
+      logLine(
         `  Match found: ${result.company.name} (score: ${score}, ${jurisdictionInfo.jurisdiction})`,
       );
     } catch (error) {
-      console.log(`Error searching ${name}: ${error.message}`);
+      logLine(`Error searching ${name}: ${error.message}`);
     }
 
     processed = index + 1;
 
     if (processed % CHECKPOINT_INTERVAL === 0) {
       await saveJson(checkpointFile, { processed, matches });
-      console.log(
+      logLine(
         `Checkpoint saved: ${processed}/${dartSubsidiaries.length} processed, ${matches.length} matches`,
       );
     }
@@ -392,7 +427,10 @@ async function run() {
 
   await saveJson(resultsFile, matches);
   await saveJson(checkpointFile, { processed, matches });
-  console.log(
+  fs.copyFileSync(resultsFile, path.join(archiveDayDir, `matches_${runStamp}.json`));
+  fs.copyFileSync(checkpointFile, path.join(archiveDayDir, `checkpoint_${runStamp}.json`));
+  fs.copyFileSync(runLogFile, path.join(latestDir, "run.log"));
+  logLine(
     `Collection complete: ${processed}/${dartSubsidiaries.length} processed, ${matches.length} matches saved`,
   );
 }

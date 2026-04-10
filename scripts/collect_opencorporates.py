@@ -19,8 +19,10 @@ import os
 import sys
 import json
 import time
+import shutil
 import argparse
 import requests
+from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 from typing import Dict, List, Optional, Tuple
@@ -56,11 +58,27 @@ DART_DATA_DIR = Path(
 OUTPUT_DIR = Path(
     os.getenv("BLINDSPOT_OPENCORPORATES_DIR", str(DATA_ROOT / "opencorporates"))
 ).expanduser()
-CHECKPOINT_FILE = OUTPUT_DIR / "checkpoint.json"
-RESULTS_FILE = OUTPUT_DIR / "matches.json"
+LATEST_DIR = OUTPUT_DIR / "latest"
+ARCHIVE_DIR = OUTPUT_DIR / "archive"
+CHECKPOINT_FILE = LATEST_DIR / "checkpoint.json"
+RESULTS_FILE = LATEST_DIR / "matches.json"
 
-# Ensure directories exist
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+class RunLogger:
+    """Mirror collector output to both stdout and a log file."""
+
+    def __init__(self, log_file: Path):
+        self.log_file = log_file
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
+        self._fh = open(log_file, "a", encoding="utf-8")
+
+    def write(self, message: str):
+        safe_print(message)
+        self._fh.write(message + "\n")
+        self._fh.flush()
+
+    def close(self):
+        self._fh.close()
 
 class OpenCorporatesCollector:
     def __init__(self, resume: bool = False, region_filter: Optional[str] = None, dry_run: bool = False):
@@ -69,6 +87,14 @@ class OpenCorporatesCollector:
         self.dry_run = dry_run
         self.session = requests.Session()
         self.last_request_time = 0
+        self.started_at = datetime.now()
+        self.run_day = self.started_at.strftime("%Y-%m-%d")
+        self.run_stamp = self.started_at.strftime("%H%M%S")
+        self.archive_day_dir = ARCHIVE_DIR / self.run_day
+
+        self.ensure_output_layout()
+        self.logger = RunLogger(self.archive_day_dir / f"run_{self.run_stamp}.log")
+        self.snapshot_existing_latest()
         
         # Load checkpoint if resuming
         self.checkpoint = self.load_checkpoint() if resume else {"processed": 0, "matches": []}
@@ -79,12 +105,35 @@ class OpenCorporatesCollector:
         # Only reuse saved results when explicitly resuming a previous run.
         self.existing_matches = self.load_existing_matches() if resume else []
         
-        safe_print(f"Loaded {len(self.dart_subsidiaries)} DART subsidiaries")
-        safe_print(f"Starting from checkpoint: {self.checkpoint['processed']}")
-        safe_print(f"DART data dir: {DART_DATA_DIR}")
-        safe_print(f"Output dir: {OUTPUT_DIR}")
+        self.log(f"Loaded {len(self.dart_subsidiaries)} DART subsidiaries")
+        self.log(f"Starting from checkpoint: {self.checkpoint['processed']}")
+        self.log(f"DART data dir: {DART_DATA_DIR}")
+        self.log(f"Output dir: {OUTPUT_DIR}")
+        self.log(f"Latest dir: {LATEST_DIR}")
+        self.log(f"Archive dir: {self.archive_day_dir}")
         if self.region_filter:
-            safe_print(f"Region filter: {self.region_filter}")
+            self.log(f"Region filter: {self.region_filter}")
+
+    def log(self, message: str):
+        self.logger.write(message)
+
+    def ensure_output_layout(self):
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        LATEST_DIR.mkdir(parents=True, exist_ok=True)
+        ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+        self.archive_day_dir.mkdir(parents=True, exist_ok=True)
+
+        legacy_checkpoint = OUTPUT_DIR / "checkpoint.json"
+        legacy_matches = OUTPUT_DIR / "matches.json"
+        if legacy_checkpoint.exists() and not CHECKPOINT_FILE.exists():
+            shutil.copy2(legacy_checkpoint, CHECKPOINT_FILE)
+        if legacy_matches.exists() and not RESULTS_FILE.exists():
+            shutil.copy2(legacy_matches, RESULTS_FILE)
+
+    def snapshot_existing_latest(self):
+        for source, prefix in ((RESULTS_FILE, "matches"), (CHECKPOINT_FILE, "checkpoint")):
+            if source.exists():
+                shutil.copy2(source, self.archive_day_dir / f"{prefix}_{self.run_stamp}_pre.json")
 
     def load_dart_subsidiaries(self) -> List[Dict]:
         """Load DART subsidiary data"""
@@ -105,7 +154,7 @@ class OpenCorporatesCollector:
                         seen.add(dedupe_key)
                         subsidiaries.append(item)
             except Exception as e:
-                safe_print(f"Error loading {json_file}: {e}")
+                self.log(f"Error loading {json_file}: {e}")
         
         return subsidiaries
 
@@ -157,7 +206,7 @@ class OpenCorporatesCollector:
                 with open(CHECKPOINT_FILE, 'r', encoding='utf-8') as f:
                     return json.load(f)
             except Exception as e:
-                safe_print(f"Error loading checkpoint: {e}")
+                self.log(f"Error loading checkpoint: {e}")
         return {"processed": 0, "matches": []}
 
     def load_existing_matches(self) -> List[Dict]:
@@ -167,7 +216,7 @@ class OpenCorporatesCollector:
                 with open(RESULTS_FILE, 'r', encoding='utf-8') as f:
                     return json.load(f)
             except Exception as e:
-                safe_print(f"Error loading results: {e}")
+                self.log(f"Error loading results: {e}")
         return []
 
     def save_checkpoint(self, processed: int, matches: List[Dict]):
@@ -215,11 +264,11 @@ class OpenCorporatesCollector:
                 
         except requests.exceptions.HTTPError as e:
             if response.status_code == 403:
-                safe_print(f"Rate limit exceeded for query: {query}")
+                self.log(f"Rate limit exceeded for query: {query}")
                 return None
-            safe_print(f"HTTP error for {query}: {e}")
+            self.log(f"HTTP error for {query}: {e}")
         except Exception as e:
-            safe_print(f"Error searching {query}: {e}")
+            self.log(f"Error searching {query}: {e}")
             
         return None
 
@@ -301,7 +350,7 @@ class OpenCorporatesCollector:
         if not name:
             return None
             
-        safe_print(f"Searching: {name}")
+        self.log(f"Searching: {name}")
         
         result = self.search_company(name)
         if not result:
@@ -309,7 +358,7 @@ class OpenCorporatesCollector:
             
         is_match, score = self.is_good_match(name, result)
         if not is_match:
-            safe_print(f"  No good match (score: {score})")
+            self.log(f"  No good match (score: {score})")
             return None
             
         # Build match record
@@ -324,8 +373,15 @@ class OpenCorporatesCollector:
         # Add jurisdiction info
         match.update(self.get_jurisdiction_info(result))
         
-        safe_print(f"  Match found: {result['company']['name']} (score: {score}, {match['jurisdiction']})")
+        self.log(f"  Match found: {result['company']['name']} (score: {score}, {match['jurisdiction']})")
         return match
+
+    def archive_final_outputs(self):
+        for source, prefix in ((RESULTS_FILE, "matches"), (CHECKPOINT_FILE, "checkpoint")):
+            if source.exists():
+                shutil.copy2(source, self.archive_day_dir / f"{prefix}_{self.run_stamp}.json")
+
+        shutil.copy2(self.logger.log_file, LATEST_DIR / "run.log")
 
     def run(self):
         """Main collection loop"""
@@ -333,11 +389,13 @@ class OpenCorporatesCollector:
         matches = self.existing_matches.copy()
         processed = self.checkpoint["processed"]
         
-        safe_print(f"Starting collection: {processed + 1}/{total}")
+        self.log(f"Starting collection: {processed + 1}/{total}")
         
         if self.dry_run:
             estimated_time = (total - processed) * RATE_LIMIT_DELAY
-            safe_print(f"Dry run: Estimated time: {estimated_time:.1f} seconds ({estimated_time/60:.1f} minutes)")
+            self.log(f"Dry run: Estimated time: {estimated_time:.1f} seconds ({estimated_time/60:.1f} minutes)")
+            shutil.copy2(self.logger.log_file, LATEST_DIR / "run.log")
+            self.logger.close()
             return
         
         try:
@@ -353,17 +411,19 @@ class OpenCorporatesCollector:
                 # Save checkpoint
                 if processed % CHECKPOINT_INTERVAL == 0:
                     self.save_checkpoint(processed, matches)
-                    safe_print(f"Checkpoint saved: {processed}/{total} processed, {len(matches)} matches")
+                    self.log(f"Checkpoint saved: {processed}/{total} processed, {len(matches)} matches")
                 
                 sys.stdout.flush()  # Ensure output is visible
                 
         except KeyboardInterrupt:
-            safe_print("\nInterrupted by user")
+            self.log("\nInterrupted by user")
         finally:
             # Save final checkpoint and results on every exit path.
             self.save_checkpoint(processed, matches)
             self.save_results(matches)
-            safe_print(f"\nCollection complete: {processed}/{total} processed, {len(matches)} matches saved")
+            self.archive_final_outputs()
+            self.log(f"\nCollection complete: {processed}/{total} processed, {len(matches)} matches saved")
+            self.logger.close()
 
 def main():
     parser = argparse.ArgumentParser(description="OpenCorporates Collector for BlindSpot")
