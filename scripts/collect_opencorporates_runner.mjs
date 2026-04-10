@@ -246,14 +246,44 @@ function normalizeWords(value) {
 
 function cleanSearchName(name) {
   return name
+    .replace(/（/g, "(")
+    .replace(/）/g, ")")
+    .replace(/[“”]/g, '"')
+    .replace(/’/g, "'")
     .replace(/\(\*[0-9]+\)/g, "")
     .replace(/\(([A-Z0-9-]{2,10})\)\s*$/g, "")
-    .replace(/["“”]/g, "")
+    .replace(/에 피합병/g, " ")
+    .replace(/의 종속기업/g, " ")
+    .replace(/주식회사/g, " ")
+    .replace(/\(주\)|㈜/g, " ")
+    .replace(/[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]/g, " ")
     .replace(/[А-Яа-яЁё]+/g, " ")
     .replace(/[^\w\s&.,()'/+-]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[ .,-]+$/g, "");
+}
+
+function buildSearchQueries(name) {
+  const variants = [];
+  const addVariant = (value) => {
+    const normalized = value.replace(/\s+/g, " ").trim().replace(/[ .,-]+$/g, "");
+    if (normalized && !variants.includes(normalized)) {
+      variants.push(normalized);
+    }
+  };
+
+  addVariant(name);
+  const cleaned = cleanSearchName(name);
+  addVariant(cleaned);
+  addVariant(cleaned.replace(/\([^)]*\)/g, " "));
+  addVariant(cleaned.replace(/&/g, "and"));
+  addVariant(cleaned.replace(/\band\b/gi, "&"));
+  addVariant(
+    cleaned.replace(/\b(LLC|INC|LTD|LIMITED|CORPORATION|CORP|CO|GMBH|SAS|SARL|BV|PTY|PLC)\b\.?/gi, " "),
+  );
+
+  return variants;
 }
 
 function calculateWordOverlap(name1, name2) {
@@ -395,14 +425,19 @@ async function run() {
 
     try {
       let searchQuery = name;
-      let result = await searchCompany(searchQuery, apiKey);
-      const cleanedQuery = cleanSearchName(name);
-      if ((!result || !isGoodMatch(name, result).isMatch) && cleanedQuery && cleanedQuery !== name) {
-        logLine(`  Retrying with cleaned query: ${cleanedQuery}`);
-        const retryResult = await searchCompany(cleanedQuery, apiKey);
-        if (retryResult) {
-          result = retryResult;
-          searchQuery = cleanedQuery;
+      let result = null;
+      for (const [index, candidate] of buildSearchQueries(name).entries()) {
+        if (index > 0) {
+          logLine(`  Retrying with cleaned query: ${candidate}`);
+        }
+        const candidateResult = await searchCompany(candidate, apiKey);
+        if (!candidateResult) {
+          continue;
+        }
+        result = candidateResult;
+        searchQuery = candidate;
+        if (isGoodMatch(name, candidateResult).isMatch) {
+          break;
         }
       }
       if (!result) {

@@ -39,13 +39,41 @@ def safe_print(message: str):
 
 def clean_search_name(name: str) -> str:
     """Strip abbreviations, footnotes, and obvious mojibake noise for retry searches."""
-    cleaned = re.sub(r"\(\*[0-9]+\)", "", name)
+    cleaned = name.replace("（", "(").replace("）", ")")
+    cleaned = cleaned.replace("“", '"').replace("”", '"').replace("’", "'")
+    cleaned = re.sub(r"\(\*[0-9]+\)", "", cleaned)
     cleaned = re.sub(r"\(([A-Z0-9\-]{2,10})\)\s*$", "", cleaned)
+    cleaned = cleaned.replace("에 피합병", " ")
+    cleaned = cleaned.replace("의 종속기업", " ")
+    cleaned = cleaned.replace("주식회사", " ")
+    cleaned = cleaned.replace("(주)", " ").replace("㈜", " ")
     cleaned = re.sub(r'["“”]', "", cleaned)
+    cleaned = re.sub(r"[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]", " ", cleaned)
     cleaned = re.sub(r"[А-Яа-яЁё]+", " ", cleaned)
     cleaned = re.sub(r"[^\w\s&.,()'/+-]", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" .,-")
     return cleaned
+
+
+def build_search_queries(name: str) -> List[str]:
+    """Generate progressively simpler search queries for retry attempts."""
+    variants = []
+
+    def add_variant(value: str):
+        value = re.sub(r"\s+", " ", value).strip(" .,-")
+        if value and value not in variants:
+            variants.append(value)
+
+    add_variant(name)
+
+    cleaned = clean_search_name(name)
+    add_variant(cleaned)
+    add_variant(re.sub(r"\([^)]*\)", " ", cleaned))
+    add_variant(cleaned.replace("&", "and"))
+    add_variant(cleaned.replace(" and ", " & "))
+    add_variant(re.sub(r"\b(LLC|INC|LTD|LIMITED|CORPORATION|CORP|CO|GMBH|SAS|SARL|BV|PTY|PLC)\b\.?", " ", cleaned, flags=re.IGNORECASE))
+
+    return variants
 
 # Load environment variables
 load_dotenv()
@@ -363,16 +391,21 @@ class OpenCorporatesCollector:
             return None
             
         self.log(f"Searching: {name}")
-        
+
+        result = None
         search_query = name
-        result = self.search_company(search_query)
-        cleaned_query = clean_search_name(name)
-        if (not result or not self.is_good_match(name, result)[0]) and cleaned_query and cleaned_query != name:
-            self.log(f"  Retrying with cleaned query: {cleaned_query}")
-            retry_result = self.search_company(cleaned_query)
-            if retry_result:
-                result = retry_result
-                search_query = cleaned_query
+        for idx, candidate in enumerate(build_search_queries(name)):
+            if idx > 0:
+                self.log(f"  Retrying with cleaned query: {candidate}")
+            candidate_result = self.search_company(candidate)
+            if not candidate_result:
+                continue
+
+            is_match, score = self.is_good_match(name, candidate_result)
+            result = candidate_result
+            search_query = candidate
+            if is_match:
+                break
         if not result:
             return None
             
